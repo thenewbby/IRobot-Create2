@@ -1,5 +1,17 @@
 import serial
 import time
+import sys
+import linecache
+import struct
+
+def PrintException():
+    exc_type, exc_obj, tb = sys.exc_info()
+    f = tb.tb_frame
+    lineno = tb.tb_lineno
+    filename = f.f_code.co_filename
+    linecache.checkcache(filename)
+    line = linecache.getline(filename, lineno, f.f_globals)
+    print 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
 
 class Roomba:
 
@@ -21,7 +33,7 @@ class Roomba:
     MODE_SAFE       = 2
     MODE_FULL       = 3
 
-    SENSOR_DATA = {}
+    SENSOR_DATA = {45:3}
 
     CMD_TO_OCTET    = {
                         7 : 1,  #Bumps and Wheel Drops
@@ -112,18 +124,18 @@ class Roomba:
     def getDataSTream(self):
         n = ord(r.receive(1))
         trame = self.receive(n+1)
-
+        
         checksum = (19 + n + sum(bytearray(trame))) & 0xFF
-        if checksum != 0:
+        if checksum == 0:
             i = 0;
             while i < n :
-                    cmd = data[i]
+                    cmd = ord(trame[i])
                     octets = self.CMD_TO_OCTET[cmd]
-                    data = ord(trame[i:i+octets])
+                    data = struct.unpack('>H', trame[i+1:i+1+octets])[0]
                     self.SENSOR_DATA[cmd] = data
                     i += 1 + octets
         else:
-            print "trame corronpue"
+            print "trame corrompue"
 
 
 r = Roomba('COM24', 115200)
@@ -135,22 +147,15 @@ try:
     #r.setSong(1, [61,50,62,50,63,50])
     #r.playSong(1)
 
-    r.setStream([r.PKT_ID_MODE])
+    r.setStream([46])
     while True:
         if ord(r.receive(1)) == 19:
-            print 'new frame : ',
-            n = ord(r.receive(1))
-            data = r.receive(n+1)
-            for i in xrange(0,n-1,2):
-                print 'data {0} = {1}; '.format(ord(data[i]), ord(data[i+1])),
-            checksum = (19 + n + sum(bytearray(data))) & 0xFF
-            if checksum != 0:
-                print '[bad CRC : {0}]'.format(checksum),
-            print '\n\r'
+            r.getDataSTream();
+            print "data : {0}".format(r.SENSOR_DATA[46])
 
 
     r.disconnect()
 
-except Exception as e:
-    print "Catch exception : {0}".format(str(e))
+except:
+    PrintException()
     r.disconnect()
