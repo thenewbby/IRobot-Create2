@@ -3,6 +3,7 @@ import time
 import sys
 import linecache
 import struct
+import numpi as np
 
 def PrintException():
     exc_type, exc_obj, tb = sys.exc_info()
@@ -14,6 +15,14 @@ def PrintException():
     print 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
 
 class Roomba:
+
+    position = [0,0,0] #x, y, theta
+    last_encodeur = []
+    last_time_pos =
+
+    WHEEL_SEPARATION  = 0.235
+    WHEEL_RADIUS    = 0.072
+    ROBOT_RADIUS    = 0.35
 
     CMD_RESET       = 7
     CMD_START       = 128
@@ -33,7 +42,9 @@ class Roomba:
     MODE_SAFE       = 2
     MODE_FULL       = 3
 
-    SENSOR_DATA = {45:3}
+    ENCODER_MAX_VALUE = 65535
+
+    SENSOR_DATA = {}
 
     CMD_TO_OCTET    = {
                         7 : 1,  #Bumps and Wheel Drops
@@ -124,7 +135,7 @@ class Roomba:
     def getDataSTream(self):
         n = ord(r.receive(1))
         trame = self.receive(n+1)
-        
+
         checksum = (19 + n + sum(bytearray(trame))) & 0xFF
         if checksum == 0:
             i = 0;
@@ -136,6 +147,42 @@ class Roomba:
                     i += 1 + octets
         else:
             print "trame corrompue"
+
+
+    def positionUpdate(self):
+        left_lenth  = self.SENSOR_DATA[43] - self.last_encodeur[0]
+        right_lenth = self.SENSOR_DATA[44] - self.last_encodeur[1]
+
+        self.last_encodeur[0] = self.SENSOR_DATA[43]
+        self.last_encodeur[1] = self.SENSOR_DATA[44]
+
+        if left_lenth > 10000:
+            left_lenth -= ENCODER_MAX_VALUE
+        elif left_lenth < -10000:
+            left_lenth += ENCODER_MAX_VALUE
+
+        if right_lenth > 10000:
+            right_lenth -= ENCODER_MAX_VALUE
+        elif right_lenth < -10000:
+            right_lenth += ENCODER_MAX_VALUE
+
+
+        left_lenth *= (np.pi * WHEEL_RADIUS)/508.8
+        right_lenth *= (np.pi * WHEEL_RADIUS)/508.8
+
+        lenth_sum = left_lenth + right_lenth
+
+        average_lenth = (lenth_sum) /2
+
+        angle = self.position[2]
+
+
+        self.position[0] += average_lenth * np.cos(angle)
+        self.position[1] += average_lenth * np.sin(angle)
+        self.position[2] += lenth_sum /  WHEEL_SEPARATION
+
+
+
 
 
 r = Roomba('COM24', 115200)
