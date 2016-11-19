@@ -33,6 +33,7 @@ class Roomba:
     CMD_LED         = 139
     CMD_SONG_SET    = 140
     CMD_SONG_PLAY   = 141
+    CMD_DRIVE       = 145
     CMD_QUERY_LIST  = 149
     CMD_STREAM      = 148
 
@@ -180,9 +181,25 @@ class Roomba:
         self.position[0] += average_lenth * np.cos(angle)
         self.position[1] += average_lenth * np.sin(angle)
         self.position[2] += lenth_sum /  WHEEL_SEPARATION
+        self.position[2] = self.position[2] % (2*np.pi)
+
+    def move(self,rSpeed, lSpeed):
+
+        data = [self.CMD_DRIVE, rSpeed, lSpeed]
+        self.send(data)
 
 
-
+    def stopTurnTo(self,newTheta):
+        turnSpeed = 200
+        self.move(0,0)
+        delta = self.position[2] - newTheta
+        if delta < -np.pi:
+            delta += np.pi
+        dist = (delta * WHEEL_SEPARATION) / 2
+        time = abs(delta) / turnSpeed
+        self.move(np.sign(delta)*turnSpeed,-1*np.sign(delta)*turnSpeed)
+        sleep(time)
+        self.move(0,0)
 
 
 r = Roomba('COM24', 115200)
