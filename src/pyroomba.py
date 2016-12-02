@@ -3,7 +3,7 @@ import time
 import sys
 import linecache
 import struct
-import numpi as np
+import numpy as np
 
 def PrintException():
     exc_type, exc_obj, tb = sys.exc_info()
@@ -18,11 +18,14 @@ class Roomba:
 
     position = [0,0,0] #x, y, theta
     last_encodeur = []
-    last_time_pos =
+    # last_time_pos =
 
-    WHEEL_SEPARATION  = 0.235
-    WHEEL_RADIUS    = 0.072
-    ROBOT_RADIUS    = 0.35
+    V_MAX           = 200 #mm/s
+    KP              = 0.1
+
+    WHEEL_SEPARATION= 235   # En milimètre
+    WHEEL_RADIUS    = 72    # En milimètre
+    ROBOT_RADIUS    = 35    # En milimètre
 
     CMD_RESET       = 7
     CMD_START       = 128
@@ -133,7 +136,7 @@ class Roomba:
         data.extend(packetIds)
         self.send(data)
 
-    def getDataSTream(self):
+    def getDataSTream(self): #Verifier avant d'appeler si le premier hexa est 19
         n = ord(r.receive(1))
         trame = self.receive(n+1)
 
@@ -149,6 +152,13 @@ class Roomba:
         else:
             print "trame corrompue"
 
+    def unicycleToDifferential(self, v, omega): #VERIFIER LES VALEURS DE SORTIE
+        R = self.WHEEL_SEPARATION
+        L = self.WHEEL_RADIUS
+        rSpeed = ( (2.0 * v) + (omega*L) ) / (2.0 * R)
+        lSpeed = ( (2.0 * v) - (omega*L) ) / (2.0 * R)
+
+        return lSpeed, rSpeed
 
     def positionUpdate(self):
         left_lenth  = self.SENSOR_DATA[43] - self.last_encodeur[0]
@@ -181,45 +191,69 @@ class Roomba:
         self.position[0] += average_lenth * np.cos(angle)
         self.position[1] += average_lenth * np.sin(angle)
         self.position[2] += lenth_sum /  WHEEL_SEPARATION
-        self.position[2] = self.position[2] % (2*np.pi)
+        self.position[2] = ((self.position[2] + np.pi) % (2*np.pi)) - np.pi
 
-    def move(self,rSpeed, lSpeed):
+    def uniMove(self, v, omega):
+        lSpeed, rSpeed = self.unicycleToDifferential(v, omega)
+        self.diffMove(lSpeed, rSpeed)
 
-        data = [self.CMD_DRIVE, rSpeed, lSpeed]
+    def diffMove(self,lSpeed, rSpeed):
+        r = struct.pack('>h',rSpeed)
+        l = struct.pack('>h',lSpeed)
+
+        data = [self.CMD_DRIVE, r[0:1], r[1:2], l[0:1], l[1:2]]
         self.send(data)
-
 
     def stopTurnTo(self,newTheta):
         turnSpeed = 200
-        self.move(0,0)
+        self.diffMove(0,0)
         delta = self.position[2] - newTheta
         if delta < -np.pi:
             delta += np.pi
         dist = (delta * WHEEL_SEPARATION) / 2
         time = abs(delta) / turnSpeed
-        self.move(np.sign(delta)*turnSpeed,-1*np.sign(delta)*turnSpeed)
+        self.diffMove(np.sign(delta)*turnSpeed,-1*np.sign(delta)*turnSpeed)
         sleep(time)
-        self.move(0,0)
+        self.diffMove(0,0)
+
+    def moveToPoint(self, xPos, yPos): #xPos et yPos en mètre
+        Goal_Vector = [10,10,0]
+        while (-1 < Goal_Vector[0]) && (Goal_Vector[0] > 1) && (-1 < Goal_Vector[1]) && (Goal_Vector[1] > 1): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
+            # Calcul vector goal robot frame
+            Goal_Vector[0] = xPos - self.position[0]
+            Goal_Vector[1] = yPos - self.position[1]
+            Goal_Vector[2] = np.arctan2(Goal_Vector[1],Goal_Vector[0])
+
+            # Calcul de l'angle d'erreur
+            thetaDelta = ((Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
+            # Calcul omega et v
+            omega = self.KP * thetaDelta
+            v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+            self.uniMove(v, omega)
+        self.diffMove(0,0)
 
 
-r = Roomba('COM24', 115200)
-try:
-    r.fullMode()
+def test(arg):
+    r = Roomba('COM24', 115200)
+    try:
+        r.fullMode()
 
-    print "mode : {0}".format(r.getMode())
+        print "mode : {0}".format(r.getMode())
 
-    #r.setSong(1, [61,50,62,50,63,50])
-    #r.playSong(1)
+        #r.setSong(1, [61,50,62,50,63,50])
+        #r.playSong(1)
 
-    r.setStream([46])
-    while True:
-        if ord(r.receive(1)) == 19:
-            r.getDataSTream();
-            print "data : {0}".format(r.SENSOR_DATA[46])
+        r.setStream([46])
+        while True:
+            if ord(r.receive(1)) == 19:
+                r.getDataSTream();
+                print "data : {0}".format(r.SENSOR_DATA[46])
 
 
-    r.disconnect()
+        r.disconnect()
 
 except:
     PrintException()
     r.disconnect()
+if __name__ == '__main__':
+    test()
