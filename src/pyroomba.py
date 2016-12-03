@@ -16,12 +16,12 @@ def PrintException():
 
 class Roomba:
 
-    position = [0,0,0] #x, y, theta
+    position = [0,0,0] #x, y, theta (en milimetre)
     last_encodeur = []
     # last_time_pos =
 
     V_MAX           = 200 #mm/s
-    KP              = 0.1
+    KP              = 10
 
     WHEEL_SEPARATION= 235   # En milimètre
     WHEEL_RADIUS    = 72    # En milimètre
@@ -137,7 +137,7 @@ class Roomba:
         self.send(data)
 
     def getDataSTream(self): #Verifier avant d'appeler si le premier hexa est 19
-        n = ord(r.receive(1))
+        n = ord(self.receive(1))
         trame = self.receive(n+1)
 
         checksum = (19 + n + sum(bytearray(trame))) & 0xFF
@@ -168,18 +168,18 @@ class Roomba:
         self.last_encodeur[1] = self.SENSOR_DATA[44]
 
         if left_lenth > 10000:
-            left_lenth -= ENCODER_MAX_VALUE
+            left_lenth -= self.ENCODER_MAX_VALUE
         elif left_lenth < -10000:
-            left_lenth += ENCODER_MAX_VALUE
+            left_lenth += self.ENCODER_MAX_VALUE
 
         if right_lenth > 10000:
-            right_lenth -= ENCODER_MAX_VALUE
+            right_lenth -= self.ENCODER_MAX_VALUE
         elif right_lenth < -10000:
-            right_lenth += ENCODER_MAX_VALUE
+            right_lenth += self.ENCODER_MAX_VALUE
 
 
-        left_lenth *= (np.pi * WHEEL_RADIUS)/508.8
-        right_lenth *= (np.pi * WHEEL_RADIUS)/508.8
+        left_lenth *= (np.pi * self.WHEEL_RADIUS)/508.8
+        right_lenth *= (np.pi * self.WHEEL_RADIUS)/508.8
 
         lenth_sum = left_lenth + right_lenth
 
@@ -190,7 +190,7 @@ class Roomba:
 
         self.position[0] += average_lenth * np.cos(angle)
         self.position[1] += average_lenth * np.sin(angle)
-        self.position[2] += lenth_sum /  WHEEL_SEPARATION
+        self.position[2] += lenth_sum /  self.WHEEL_SEPARATION
         self.position[2] = ((self.position[2] + np.pi) % (2*np.pi)) - np.pi
 
     def uniMove(self, v, omega):
@@ -210,7 +210,7 @@ class Roomba:
         delta = self.position[2] - newTheta
         if delta < -np.pi:
             delta += np.pi
-        dist = (delta * WHEEL_SEPARATION) / 2
+        # dist = (delta * self.WHEEL_SEPARATION) / 2
         time = abs(delta) / turnSpeed
         self.diffMove(np.sign(delta)*turnSpeed,-1*np.sign(delta)*turnSpeed)
         sleep(time)
@@ -218,6 +218,8 @@ class Roomba:
 
     def moveToPoint(self, xPos, yPos): #xPos et yPos en mètre
         Goal_Vector = [10,10,0]
+        xPos /= 100
+        yPos /= 100
         while (-1 < Goal_Vector[0]) && (Goal_Vector[0] > 1) && (-1 < Goal_Vector[1]) && (Goal_Vector[1] > 1): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
             # Calcul vector goal robot frame
             Goal_Vector[0] = xPos - self.position[0]
