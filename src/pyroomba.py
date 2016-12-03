@@ -213,14 +213,14 @@ class Roomba:
         # dist = (delta * self.WHEEL_SEPARATION) / 2
         time = abs(delta) / turnSpeed
         self.diffMove(np.sign(delta)*turnSpeed,-1*np.sign(delta)*turnSpeed)
-        sleep(time)
+        time.sleep(time)
         self.diffMove(0,0)
 
     def moveToPoint(self, xPos, yPos): #xPos et yPos en mètre
         Goal_Vector = [10,10,0]
         xPos /= 100
         yPos /= 100
-        while (-1 < Goal_Vector[0]) && (Goal_Vector[0] > 1) && (-1 < Goal_Vector[1]) && (Goal_Vector[1] > 1): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
+        while (-1 < Goal_Vector[0]) and (Goal_Vector[0] > 1) and (-1 < Goal_Vector[1]) and (Goal_Vector[1] > 1): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
             # Calcul vector goal robot frame
             Goal_Vector[0] = xPos - self.position[0]
             Goal_Vector[1] = yPos - self.position[1]
@@ -254,8 +254,10 @@ def test(arg):
 
         r.disconnect()
 
-except:
-    PrintException()
-    r.disconnect()
+    except:
+        PrintException()
+        r.disconnect()
+        
+        
 if __name__ == '__main__':
     test()
