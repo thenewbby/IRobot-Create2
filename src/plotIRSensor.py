@@ -40,54 +40,60 @@ class Odometrie(threading.Thread):
 
 def testMove():
     threads = []
-    r = Roomba('/dev/ttyUSB0',115200)
+    try:
+        r = Roomba('/dev/ttyUSB0',115200)
 
-    r.fullMode()
+        r.fullMode()
 
-    threads.append(Stream(r))
+        threads.append(Stream(r))
 
-    # for t in threads:
-    #     t.start()
-    #     time.sleep()
-    threads[0].start()
-    time.sleep(0.1)
-    threads.append(Odometrie(r))
+        # for t in threads:
+        #     t.start()
+        #     time.sleep()
+        threads[0].start()
+        time.sleep(0.1)
+        threads.append(Odometrie(r))
 
-    threads[1].start()
+        threads[1].start()
 
-    r.stopTurnTo(np.pi/2)
-    time.sleep(0.5)
-    r.stopTurnTo(-np.pi/2)
-
-    # r.diffMove(100,100)
-    # time.sleep(5)
-    # r.diffMove(0,0)
-    # for i in range(0,5):
-        # r.uniMove(100, -5)
+        r.stopTurnTo(3*np.pi)
         # time.sleep(0.5)
-        # r.stopTurnTo(np.pi/2)
-    # time.sleep()
+        # r.stopTurnTo(-np.pi/2)
+        # r.moveToPoint(0.6,1)
+        # r.diffMove(100,100)
+        # time.sleep(5)
+        # r.diffMove(0,0)
+        # for i in range(0,5):
+            # r.uniMove(100, -5)
+            # time.sleep(0.5)
+            # r.stopTurnTo(np.pi/2)
+        # time.sleep()
 
-    # print r.getData([43])
+        # print r.getData([43])
 
-    for t in threads:
-        t.kill_received = True
+        for t in threads:
+            t.kill_received = True
 
-    print r.SENSOR_DATA
+        print r.SENSOR_DATA
 
+        r.disconnect()
+    except:
+        for t in threads:
+            t.kill_received = True
 
+        r.disconnect()
 
 
 def test():
     r = Roomba('/dev/ttyUSB0',115200)
-    # r.send([7])
+    r.send([7])
     # print "mode : {0}".format(r.getMode())
-    r.fullMode()
+    # r.fullMode()
     # print "mode : {0}".format(r.getMode())
 
     # r.setSong(1, [61,50,62,50,63,50])
     # r.playSong(1)
-    d = r.getData([35,43,44])
+    # d = r.getData([35,43,44])
 
     # r.diffMove(-100,-100)
     # time.sleep(1.84)

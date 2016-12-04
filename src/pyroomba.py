@@ -26,6 +26,7 @@ class Roomba:
 
     V_MAX           = 200 #mm/s
     KP              = 10
+    KP_OMEGA        = 5
 
     WHEEL_SEPARATION= 235   # En milimètre
     WHEEL_DIAMETRE    = 72    # En milimètre
@@ -204,7 +205,7 @@ class Roomba:
         L = self.WHEEL_DIAMETRE
         rSpeed = ( (2.0 * v) + (omega*L) ) / (2.0 )
         lSpeed = ( (2.0 * v) - (omega*L) ) / (2.0 )
-        print "lSpeed: " + str(lSpeed) + " rSpeed: " + str(rSpeed)
+        # print "lSpeed: " + str(lSpeed) + " rSpeed: " + str(rSpeed)
         return lSpeed, rSpeed
 
     def positionUpdate(self):
@@ -260,29 +261,21 @@ class Roomba:
         self.send(data)
 
     def stopTurnTo(self,newTheta):
-        turnSpeed = 200
         self.diffMove(0,0)
-        # print "oldAngle: " +  str(self.position[2]) + " newTheta: " + str(newTheta)
-        delta = self.position[2] - newTheta
-        # print "delta: " + str(delta)
-        # print "pi: " + str(np.pi)
-
-        if delta < -np.pi:
-            delta += np.pi
-        dist = (delta * self.WHEEL_SEPARATION)
-        t = abs(dist/ (turnSpeed * 2))
-
-        # print "leftSpeed: " + str(np.sign(delta)*turnSpeed)
-        self.diffMove(np.sign(delta)*turnSpeed,-1*np.sign(delta)*turnSpeed)
-        # print t
-        time.sleep(t)
+        newTheta = np.arctan2(np.sin(newTheta),np.cos(newTheta))
+        while True:
+                delta = newTheta - self.position[2]
+                omega = self.KP_OMEGA * delta
+                self.uniMove(0,omega)
+                if -0.087 < delta and delta < 0.087:
+                    break
         self.diffMove(0,0)
 
     def moveToPoint(self, xPos, yPos): #xPos et yPos en mètre
-        Goal_Vector = [10,10,0]
-        xPos /= 100
-        yPos /= 100
-        while (-1 < Goal_Vector[0]) and (Goal_Vector[0] > 1) and (-1 < Goal_Vector[1]) and (Goal_Vector[1] > 1): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
+        Goal_Vector = [100,100,0]
+        xPos *= 1000
+        yPos *= 1000
+        while (-5 < Goal_Vector[0]) and (Goal_Vector[0] > 5) and (-5 < Goal_Vector[1]) and (Goal_Vector[1] > 5): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
             # Calcul vector goal robot frame
             Goal_Vector[0] = xPos - self.position[0]
             Goal_Vector[1] = yPos - self.position[1]
