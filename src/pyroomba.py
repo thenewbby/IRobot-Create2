@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
 import serial
 import time
 import sys
 import linecache
 import struct
 import numpy as np
+import threading
 
 def PrintException():
     exc_type, exc_obj, tb = sys.exc_info()
@@ -16,15 +18,17 @@ def PrintException():
 
 class Roomba:
 
+    SENSOR_DATA_LOCK = threading.Lock()
+
     position = [0,0,0] #x, y, theta (en milimetre)
-    last_encodeur = []
+    last_encodeur = [] #[left, right]
     # last_time_pos =
 
     V_MAX           = 200 #mm/s
     KP              = 10
 
     WHEEL_SEPARATION= 235   # En milimètre
-    WHEEL_RADIUS    = 72    # En milimètre
+    WHEEL_DIAMETRE    = 72    # En milimètre
     ROBOT_RADIUS    = 35    # En milimètre
 
     CMD_RESET       = 7
@@ -49,38 +53,38 @@ class Roomba:
     ENCODER_MAX_VALUE = 65535
 
     SENSOR_DATA = {}
-
-    CMD_TO_OCTET    = {
-                        7 : 1,  #Bumps and Wheel Drops
-                        8 : 1,  #Wall
-                        9 : 1,  #Cliff Left
-                        10 : 1, #Cliff Front Left
-                        11 : 1, #Cliff Front Right
-                        12 : 1, #Cliff Right
-                        13 : 1, #Virtual Wall
-                        14 : 1, #Wheel Overcurrents
-                        17 : 1, #Infrared CharacterOmni
-                        52 : 1, #Infrared Character Left
-                        53 : 1, #Infrared Character Right
-                        18 : 1, #Buttons
-                        19 : 2, #Distance
-                        20 : 2, #Angle
-                        35 : 1, #OI Mode
-                        38 : 1, #Number of Stream Packets
-                        39 : 2, #Requested Velocity
-                        40 : 2, #Requested Radius
-                        41 : 2, #Requested Right Velocity
-                        42 : 2, #Requested Left Velocity
-                        43 : 2, #LeftEncoder Counts
-                        44 : 2, #RightEncoder Counts
-                        45 : 1, #Light Bumper
+# LISTE NON COMPLETE
+    CMD_TO_OCTET    = { # packetIds : [octetsctet, 0(non signé)/1(signé)]
+                        7 : [1,0],  #Bumps and Wheel Drops
+                        8 : [1,0],  #Wall
+                        9 : [1,0],  #Cliff Left
+                        10 : [1,0], #Cliff Front Left
+                        11 : [1,0], #Cliff Front Right
+                        12 : [1,0], #Cliff Right
+                        13 : [1,0], #Virtual Wall
+                        14 : [1,0], #Wheel Overcurrents
+                        17 : [1,0], #Infrared CharacterOmni
+                        52 : [1,0], #Infrared Character Left
+                        53 : [1,0], #Infrared Character Right
+                        18 : [1,0], #Buttons
+                        19 : [2,1], #Distance
+                        20 : [2,1], #Angle
+                        35 : [1,0], #OI Mode
+                        38 : [1,0], #Number of Stream Packets
+                        39 : [2,1], #Requested Velocity
+                        40 : [2,1], #Requested Radius
+                        41 : [2,1], #Requested Right Velocity
+                        42 : [2,1], #Requested Left Velocity
+                        43 : [2,0], #LeftEncoder Counts
+                        44 : [2,0], #RightEncoder Counts
+                        45 : [1,0], #Light Bumper
                         # Groupe commande 106 (46 - 51)
-                        46 : 2, #Light Bump Left Signal
-                        47 : 2, #Light Bump Front Left Signal
-                        48 : 2, #Light Bump Center Left Signal
-                        49 : 2, #Light Bump Center Right Signal
-                        50 : 2, #Light Bump Front Right Signal
-                        51 : 2 #Light Bump Right Signal
+                        46 : [2,0], #Light Bump Left Signal
+                        47 : [2,0], #Light Bump Front Left Signal
+                        48 : [2,0], #Light Bump Center Left Signal
+                        49 : [2,0], #Light Bump Center Right Signal
+                        50 : [2,0], #Light Bump Front Right Signal
+                        51 : [2,0] #Light Bump Right Signal
                       }
 
     def __init__(self, port, baudrate):
@@ -98,6 +102,7 @@ class Roomba:
 
     def send(self, command):
         try:
+            # print command
             self.s.write(command)
         except IOError as e:
             print "Roomba I/O error({0}) : {1}".format(e.errno, e.strerror)
@@ -110,12 +115,15 @@ class Roomba:
 
     def passiveMode(self):
         self.send([self.CMD_START])
+        time.sleep(0.04)
 
     def safeMode(self):
         self.send([self.CMD_MODE_SAFE])
+        time.sleep(0.04)
 
     def fullMode(self):
         self.send([self.CMD_MODE_FULL])
+        time.sleep(0.04)
 
     def getMode(self):
         self.send([self.CMD_QUERY_LIST, 1, self.PKT_ID_MODE])
@@ -129,6 +137,35 @@ class Roomba:
 
     def playSong(self, songId):
         self.send([self.CMD_SONG_PLAY, songId])
+
+    # def getData(self, packetIds): #NE MARCHE PAS
+    #     assert isinstance(packetIds, list), 'packetIds must be a list'
+    #     data = [self.CMD_QUERY_LIST, len(packetIds)]
+    #     data.extend(packetIds)
+    #     self.send(data)
+    #     rec = []
+    #     octets = 0
+    #     for pck in packetIds:
+    #         octets += self.CMD_TO_OCTET[pck][0]
+    #         # print octets
+    #     temp = self.receive(octets)
+    #     print temp
+    #     print packetIds
+    #     i = 0
+    #     for pck in packetIds:
+    #         octets ,sign = self.CMD_TO_OCTET[pck]
+    #         if octets == 1:
+    #             print ord(temp[i:i+1])
+    #             # rec.append(ord(temp[i:i+1]))
+    #         else:
+    #             if sign == 0:
+    #                 sType = '>H'
+    #             else:
+    #                 sType = '>h'
+    #             print struct.unpack(sType,temp[i:i+octets])[0]
+    #             # rec.append(struct.unpack(sType,temp)[0])
+    #         i+= octets
+    #     return rec
 
     def setStream(self, packetIds):
         assert isinstance(packetIds, list), 'packetIds must be a list'
@@ -145,27 +182,45 @@ class Roomba:
             i = 0;
             while i < n :
                     cmd = ord(trame[i])
-                    octets = self.CMD_TO_OCTET[cmd]
-                    data = struct.unpack('>H', trame[i+1:i+1+octets])[0]
+                    octets, sign = self.CMD_TO_OCTET[cmd]
+                    if octets == 1:
+                        data = ord(trame[i+1:i+2])
+                    else:
+                        temp = self.receive(octets)
+                        if sign == 0:
+                            sType = '>H'
+                        else:
+                            sType = '>h'
+                        data = struct.unpack(sType, trame[i+1:i+1+octets])[0]
+                    self.SENSOR_DATA_LOCK.acquire()
                     self.SENSOR_DATA[cmd] = data
+                    self.SENSOR_DATA_LOCK.release()
                     i += 1 + octets
         else:
             print "trame corrompue"
 
-    def unicycleToDifferential(self, v, omega): #VERIFIER LES VALEURS DE SORTIE
+    def unicycleToDifferential(self, v, omega):
         R = self.WHEEL_SEPARATION
-        L = self.WHEEL_RADIUS
-        rSpeed = ( (2.0 * v) + (omega*L) ) / (2.0 * R)
-        lSpeed = ( (2.0 * v) - (omega*L) ) / (2.0 * R)
-
+        L = self.WHEEL_DIAMETRE
+        rSpeed = ( (2.0 * v) + (omega*L) ) / (2.0 )
+        lSpeed = ( (2.0 * v) - (omega*L) ) / (2.0 )
+        print "lSpeed: " + str(lSpeed) + " rSpeed: " + str(rSpeed)
         return lSpeed, rSpeed
 
     def positionUpdate(self):
-        left_lenth  = self.SENSOR_DATA[43] - self.last_encodeur[0]
-        right_lenth = self.SENSOR_DATA[44] - self.last_encodeur[1]
+        self.SENSOR_DATA_LOCK.acquire()
+        try:
+            left_encoder  = self.SENSOR_DATA[43]
+            right_encoder = self.SENSOR_DATA[44]
+        except:
+            PrintException()
+        self.SENSOR_DATA_LOCK.release()
+        # print last_encodeur
+        left_lenth  = left_encoder - self.last_encodeur[0]
+        right_lenth = right_encoder - self.last_encodeur[1]
 
-        self.last_encodeur[0] = self.SENSOR_DATA[43]
-        self.last_encodeur[1] = self.SENSOR_DATA[44]
+        self.last_encodeur[0] = left_encoder
+        self.last_encodeur[1] = right_encoder
 
         if left_lenth > 10000:
             left_lenth -= self.ENCODER_MAX_VALUE
@@ -178,8 +233,8 @@ class Roomba:
             right_lenth += self.ENCODER_MAX_VALUE
 
 
-        left_lenth *= (np.pi * self.WHEEL_RADIUS)/508.8
-        right_lenth *= (np.pi * self.WHEEL_RADIUS)/508.8
+        left_lenth *= (np.pi * self.WHEEL_DIAMETRE)/508.8
+        right_lenth *= (np.pi * self.WHEEL_DIAMETRE)/508.8
 
         lenth_sum = left_lenth + right_lenth
 
@@ -190,7 +245,7 @@ class Roomba:
 
         self.position[0] += average_lenth * np.cos(angle)
         self.position[1] += average_lenth * np.sin(angle)
-        self.position[2] += lenth_sum /  self.WHEEL_SEPARATION
+        self.position[2] += (right_lenth - left_lenth) /  self.WHEEL_SEPARATION
         self.position[2] = ((self.position[2] + np.pi) % (2*np.pi)) - np.pi
 
     def uniMove(self, v, omega):
@@ -207,13 +262,20 @@ class Roomba:
     def stopTurnTo(self,newTheta):
         turnSpeed = 200
         self.diffMove(0,0)
+        # print "oldAngle: " +  str(self.position[2]) + " newTheta: " + str(newTheta)
         delta = self.position[2] - newTheta
+        # print "delta: " + str(delta)
+        # print "pi: " + str(np.pi)
+
         if delta < -np.pi:
             delta += np.pi
-        # dist = (delta * self.WHEEL_SEPARATION) / 2
-        time = abs(delta) / turnSpeed
+        dist = (delta * self.WHEEL_SEPARATION)
+        t = abs(dist/ (turnSpeed * 2))
+
+        # print "leftSpeed: " + str(np.sign(delta)*turnSpeed)
         self.diffMove(np.sign(delta)*turnSpeed,-1*np.sign(delta)*turnSpeed)
-        time.sleep(time)
+        # print t
+        time.sleep(t)
         self.diffMove(0,0)
 
     def moveToPoint(self, xPos, yPos): #xPos et yPos en mètre
@@ -257,7 +319,7 @@ def test(arg):
     except:
         PrintException()
         r.disconnect()
-        
-        
+
+
 if __name__ == '__main__':
     test()
