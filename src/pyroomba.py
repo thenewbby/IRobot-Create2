@@ -6,6 +6,7 @@ import linecache
 import struct
 import numpy as np
 import threading
+from idlelib.SearchEngine import get
 
 def PrintException():
     exc_type, exc_obj, tb = sys.exc_info()
@@ -15,6 +16,14 @@ def PrintException():
     linecache.checkcache(filename)
     line = linecache.getline(filename, lineno, f.f_globals)
     print 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
+    
+class State:
+    GO_TO_GOAL      = 0
+    AVOID_OBSTACLE  = 1
+    SLIDE_LEFT      = 2
+    SLIDE_RIGHT     = 3
+    GOAL_REACHED    = 4
+    
 
 class Roomba:
 
@@ -26,11 +35,14 @@ class Roomba:
 
     V_MAX           = 200 #mm/s
     KP              = 10
-    KP_OMEGA        = 5
 
-    WHEEL_SEPARATION= 235   # En milimètre
-    WHEEL_DIAMETRE    = 72    # En milimètre
-    ROBOT_RADIUS    = 35    # En milimètre
+    KP_OMEGA        = 5
+    
+    TURN_SPEED      = 200
+
+    WHEEL_SEPARATION= 235   # En milimÃ¨tre
+    WHEEL_DIAMETRE    = 72    # En milimÃ¨tre
+    ROBOT_RADIUS    = 35    # En milimÃ¨tre
 
     CMD_RESET       = 7
     CMD_START       = 128
@@ -55,7 +67,7 @@ class Roomba:
 
     SENSOR_DATA = {}
 # LISTE NON COMPLETE
-    CMD_TO_OCTET    = { # packetIds : [octetsctet, 0(non signé)/1(signé)]
+    CMD_TO_OCTET    = { # packetIds : [octetsctet, 0(non signÃ©)/1(signÃ©)]
                         7 : [1,0],  #Bumps and Wheel Drops
                         8 : [1,0],  #Wall
                         9 : [1,0],  #Cliff Left
@@ -199,6 +211,9 @@ class Roomba:
                     i += 1 + octets
         else:
             print "trame corrompue"
+            
+    def convertIR2Distance(self, irValue):
+        return 2436 * np.exp(-0.236 * irValue)
 
     def unicycleToDifferential(self, v, omega):
         R = self.WHEEL_SEPARATION
@@ -259,7 +274,16 @@ class Roomba:
 
         data = [self.CMD_DRIVE, r[0:1], r[1:2], l[0:1], l[1:2]]
         self.send(data)
-
+    
+#     def turnTo(self, newTheta):
+#         theta = self.supervisor.estimated_pose().theta
+#         e = ((theta_d - theta + np.pi) % (2*np.pi)) - np.pi
+#         omega = self.k_p * e
+#         self.supervisor.set_outputs( 1.0, omega )
+#         self.diffMove(np.sign(delta)*self.TURN_SPEED,-1*np.sign(delta)*self.TURN_SPEED)
+#         time.sleep(t)
+#         self.diffMove(0,0)
+    
     def stopTurnTo(self,newTheta):
         self.diffMove(0,0)
         newTheta = np.arctan2(np.sin(newTheta),np.cos(newTheta))
@@ -276,6 +300,7 @@ class Roomba:
         xPos *= 1000
         yPos *= 1000
         while (-5 < Goal_Vector[0]) and (Goal_Vector[0] > 5) and (-5 < Goal_Vector[1]) and (Goal_Vector[1] > 5): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
+
             # Calcul vector goal robot frame
             Goal_Vector[0] = xPos - self.position[0]
             Goal_Vector[1] = yPos - self.position[1]
@@ -288,9 +313,86 @@ class Roomba:
             v = self.V_MAX / ( abs( omega ) + 1 )**0.5
             self.uniMove(v, omega)
         self.diffMove(0,0)
+    
+    def getInput(self):
+        
+        self.isInDanger = False
+        self.obstacleDetected = False
+        self.isSafe = False
+        self.isSlidingLeft = False
+        self.isSlidingRight = False
+        self.isGoalReached = False
+        self.progressMade = False
+    
+    def doGoToGoal(self):
+        
+        if(self.isInDanger):
+            self.state = State.AVOID_OBSTACLE
+        elif(self.obstacleDetected and self.isSlidingLeft and not self.isSlidingRight):
+            self.state = State.SLIDE_LEFT
+        elif(self.obstacleDetected and self.isSlidingRight and not self.isSlidingLeft):
+            self.state = State.SLIDE_RIGHT
+        elif(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        
+        #action
+        pass
+    
+    def doAvoidObstacle(self):
+                
+        if(not self.isInDanger and self.isSlidingLeft and not self.isSlidingRight):
+            self.state = State.SLIDE_LEFT
+        elif(not self.isInDanger and self.isSlidingRight and not self.isSlidingLeft):
+            self.state = State.SLIDE_RIGHT
+        elif(not self.isSlidingLeft and not self.isSlidingRight):
+            self.state = State.GO_TO_GOAL
+        elif(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        
+        #action
+        pass
+    
+    def doSlideLeft(self):
+                
+        if(self.isInDanger):
+            self.state = State.AVOID_OBSTACLE
+        elif(self.progressMade and not self.isSlidingLeft):
+            self.state = State.GO_TO_GOAL
+        elif(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        
+        #action
+        
+        pass
+    
+    def doSlideRight(self):
+                
+        if(self.isInDanger):
+            self.state = State.AVOID_OBSTACLE
+        elif(self.progressMade and not self.isSlidingRight):
+            self.state = State.GO_TO_GOAL
+        elif(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        
+        #action
+        pass
+    
+    def updateState(self):
+        if(self.state == State.GO_TO_GOAL): 
+            self.doGoToGoal()
+        elif(self.state == State.AVOID_OBSTACLE):
+            self.doAvoidObstacle()
+        elif(self.state == State.SLIDE_LEFT):
+            self.doSlideLeft()
+        elif(self.state == State.SLIDE_RIGHT):
+            self.doSlideLeft()
+            
+    def update(self):
+        self.getInput()
+        self.updateState()
 
 
-def test(arg):
+def test():
     r = Roomba('COM24', 115200)
     try:
         r.fullMode()
@@ -304,7 +406,7 @@ def test(arg):
         while True:
             if ord(r.receive(1)) == 19:
                 r.getDataSTream();
-                print "data : {0}".format(r.SENSOR_DATA[46])
+                print "ir left : {0}".format(r.SENSOR_DATA[46])
 
 
         r.disconnect()
