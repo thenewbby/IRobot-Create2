@@ -6,6 +6,7 @@ import linecache
 import struct
 import numpy as np
 import threading
+from utils import linalg2_util as linalg
 
 def PrintException():
     exc_type, exc_obj, tb = sys.exc_info()
@@ -53,6 +54,8 @@ class Roomba:
 
     ENCODER_MAX_VALUE = 65535
 
+    SENSOR_GAIN = [9.27, 4.82, 1.76, 1.76, 4.82, 9.27]
+
     SENSOR_DATA = {}
 # LISTE NON COMPLETE
     CMD_TO_OCTET    = { # packetIds : [octetsctet, 0(non signé)/1(signé)]
@@ -87,6 +90,12 @@ class Roomba:
                         50 : [2,0], #Light Bump Front Right Signal
                         51 : [2,0] #Light Bump Right Signal
                       }
+    RC2_SENSOR_POSES = [[ [0.147,  0.315],  1.134 ], # [x, y], theta_radian
+                       [  [0.301,  0.174], 0.523  ],
+                       [  [0.346,  0.036],  0.104  ],
+                       [  [0.346, -0.036], -0.104  ],
+                       [  [0.301, -0.174], -0.523  ],
+                       [  [0.147, -0.315], -1.134  ]]
 
     def __init__(self, port, baudrate):
         self.s = None
@@ -288,6 +297,33 @@ class Roomba:
             v = self.V_MAX / ( abs( omega ) + 1 )**0.5
             self.uniMove(v, omega)
         self.diffMove(0,0)
+
+    def avoidObtacles(self):
+        n = self.RC2_SENSOR_POSES
+        self.SENSOR_DATA_LOCK.acquire()
+        distanceSensors = [self.SENSOR_DATA[46],
+                           self.SENSOR_DATA[47],
+                           self.SENSOR_DATA[48],
+                           self.SENSOR_DATA[49],
+                           self.SENSOR_DATA[50],
+                           self.SENSOR_DATA[51]]
+        self.SENSOR_DATA_LOCK.release()
+
+        obstacle_vectors = [[ 0.0, 0.0 ] * n]
+        heading_vector   = [ 0.0, 0.0 ]
+        for i in range(n):
+            obstacle_vectors[i] = distanceSensors[i]
+            obstacle_vectors[i] = linalg.rotate_and_translate_vector( obstacle_vectors[i], self.RC2_SENSOR_POSES[i][1], self.RC2_SENSOR_POSES[i][0] )
+            heading_vector      = linalg.add( heading_vector,
+                                             linalg.scale( obstacle_vectors[i], self.SENSOR_GAIN[i] ) )
+
+        theta = np.arctan2(heading_vector[1], heading_vector[0])
+
+        omega = self.KP_OMEGA*theta
+
+        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+
+        r.uniMove(v,omega)
 
 
 def test(arg):
