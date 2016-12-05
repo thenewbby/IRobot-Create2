@@ -349,6 +349,58 @@ class Roomba:
 
         r.uniMove(v,omega)
 
+    def followWall(self):
+        wall_surface =             [ [ 1.0, 0.0 ], [ 1.0, 0.0 ] ]  # the followed surface, in robot space
+        parallel_component =       [ 1.0, 0.0 ]
+        perpendicular_component =  [ 1.0, 0.0 ]
+        distance_vector =          [ 1.0, 0.0 ]
+        fw_heading_vector =        [ 1.0, 0.0 ]
+
+        if self.state == State.SLIDE_LEFT:
+            self.SENSOR_DATA_LOCK.acquire()
+            sensorDistances = [self.SENSOR_DATA[46],
+                               self.SENSOR_DATA[47],
+                               self.SENSOR_DATA[48]]
+            self.SENSOR_DATA_LOCK.release()
+            sensorsPlacement = self.RC2_SENSOR_POSES[0:3]
+        else:
+            self.SENSOR_DATA_LOCK.acquire()
+            sensorDistances = [self.SENSOR_DATA[51],
+                               self.SENSOR_DATA[20],
+                               self.SENSOR_DATA[49]]
+            self.SENSOR_DATA_LOCK.release()
+            sensorsPlacement = self.RC2_SENSOR_POSES[5:2:-1]
+
+
+        sensorDistances, indices = zip( *sorted( zip(
+                                            sensor_distances,
+                                            [0, 1, 2,]
+                                    )))
+        d1, d2 = sensor_distances[0:2]
+        i1, i2 = indices[0:2]
+        sensor1Pos, sensor1Theta = sensorsPlacement[i1][0] , sensorsPlacement[i1][1]
+        sensor2Pos, sensor2Theta = sensorsPlacement[i2][0] , sensorsPlacement[i2][1]
+        p1, p2 = [ d1, 0.0 ], [ d2, 0.0 ]
+        p1 = linalg.rotate_and_translate_vector( p1, sensor1Pos, sensor1Theta )
+        p2 = linalg.rotate_and_translate_vector( p2, sensor2Pos, sensor2Theta )
+
+        wall_surface = [ p2, p1 ]
+        parallel_component = linalg.sub( p2, p1 )
+        distance_vector = linalg.sub( p1, linalg.proj( p1, parallel_component ) )
+        unit_perp = linalg.unit( l_distance_vector )
+        distance_desired = linalg.scale( unit_perp, self.follow_distance )
+        perpendicular_component = linalg.sub( distance_vector, distance_desired )
+        fw_heading_vector = linalg.add( parallel_component, perpendicular_component )
+
+        theta = np.arctan2(heading_vector[1], heading_vector[0])
+
+        omega = self.KP_OMEGA*theta
+
+        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+
+        r.uniMove(v,omega)
+
+
     def getInput(self):
 
         self.isInDanger = False
