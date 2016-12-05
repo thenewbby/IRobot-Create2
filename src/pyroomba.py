@@ -29,10 +29,6 @@ class Roomba:
 
     SENSOR_DATA_LOCK = threading.Lock()
 
-    position = [0,0,0] #x, y, theta (en milimetre)
-    last_encodeur = [] #[left, right]
-    # last_time_pos =
-
     V_MAX           = 200 #mm/s
     KP              = 10
 
@@ -111,6 +107,11 @@ class Roomba:
     def __init__(self, port, baudrate):
         self.s = None
         self.connect(port, baudrate)
+        self.state = State.GO_TO_GOAL
+        self.goal = [0,0]
+        self.Goal_Vector = [0,0,0]
+        self.position = [0,0,0] #x, y, theta (en milimetre)
+        self.last_encodeur = [] #[left, right]
 
     def connect(self, port, baudrate):
         self.s = serial.Serial(port, baudrate, timeout = 1)
@@ -303,24 +304,15 @@ class Roomba:
                     break
         self.diffMove(0,0)
 
-    def moveToPoint(self, xPos, yPos): #xPos et yPos en mètre
-        Goal_Vector = [100,100,0]
-        xPos *= 1000
-        yPos *= 1000
+    def moveToGoal(self, xPos, yPos): #xPos et yPos en mètre
         while (-5 < Goal_Vector[0]) and (Goal_Vector[0] > 5) and (-5 < Goal_Vector[1]) and (Goal_Vector[1] > 5): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
 
-            # Calcul vector goal robot frame
-            Goal_Vector[0] = xPos - self.position[0]
-            Goal_Vector[1] = yPos - self.position[1]
-            Goal_Vector[2] = np.arctan2(Goal_Vector[1],Goal_Vector[0])
-
-            # Calcul de l'angle d'erreur
-            thetaDelta = ((Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
-            # Calcul omega et v
-            omega = self.KP * thetaDelta
-            v = self.V_MAX / ( abs( omega ) + 1 )**0.5
-            self.uniMove(v, omega)
-        self.diffMove(0,0)
+        # Calcul de l'angle d'erreur
+        thetaDelta = ((self.Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
+        # Calcul omega et v
+        omega = self.KP * thetaDelta
+        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+        self.uniMove(v, omega)
 
     def avoidObtacles(self):
         n = self.RC2_SENSOR_POSES
@@ -400,6 +392,11 @@ class Roomba:
 
         r.uniMove(v,omega)
 
+    def goalUpdate(self):
+        # Calcul vector goal robot frame
+        self.Goal_Vector[0] = self.goal[0] - self.position[0]
+        self.Goal_Vector[1] = self.goal[1] - self.position[1]
+        self.Goal_Vector[2] = np.arctan2(self.Goal_Vector[1],self.Goal_Vector[0])
 
     def getInput(self):
 
@@ -465,6 +462,7 @@ class Roomba:
         pass
 
     def updateState(self):
+        goalUpdate()
         if(self.state == State.GO_TO_GOAL):
             self.doGoToGoal()
         elif(self.state == State.AVOID_OBSTACLE):
