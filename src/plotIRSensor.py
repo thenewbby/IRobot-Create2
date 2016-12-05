@@ -13,6 +13,8 @@ class Stream(threading.Thread):
         self.r = r
         r.setStream(packetIds=[46,47,48,49,50,51,43,44])
 
+    def kill(self):
+        self.kill_received = True
 
     def run(self):
         while not self.kill_received:

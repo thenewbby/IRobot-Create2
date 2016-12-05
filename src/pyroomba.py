@@ -6,6 +6,7 @@ import linecache
 import struct
 import numpy as np
 import threading
+from plotIRSensor import *
 from utils import linalg2_util as linalg
 
 def PrintException():
@@ -43,6 +44,9 @@ class Roomba:
     WHEEL_SEPARATION= 235   # En milimÃ¨tre
     WHEEL_DIAMETRE    = 72    # En milimÃ¨tre
     ROBOT_RADIUS    = 35    # En milimÃ¨tre
+
+    SENSITIVE_ZONE  = 200
+    DANGER_ZONE     = 50
 
     CMD_RESET       = 7
     CMD_START       = 128
@@ -136,15 +140,15 @@ class Roomba:
 
     def passiveMode(self):
         self.send([self.CMD_START])
-        time.sleep(0.04)
+        time.sleep(0.2)
 
     def safeMode(self):
         self.send([self.CMD_MODE_SAFE])
-        time.sleep(0.04)
+        time.sleep(0.2)
 
     def fullMode(self):
         self.send([self.CMD_MODE_FULL])
-        time.sleep(0.04)
+        time.sleep(0.2)
 
     def getMode(self):
         self.send([self.CMD_QUERY_LIST, 1, self.PKT_ID_MODE])
@@ -197,31 +201,36 @@ class Roomba:
     def getDataSTream(self): #Verifier avant d'appeler si le premier hexa est 19
         n = ord(self.receive(1))
         trame = self.receive(n+1)
+        #print trame
 
         checksum = (19 + n + sum(bytearray(trame))) & 0xFF
         if checksum == 0:
             i = 0;
             while i < n :
-                    cmd = ord(trame[i])
-                    octets, sign = self.CMD_TO_OCTET[cmd]
-                    if octets == 1:
-                        data = ord(trame[i+1:i+2])
+                cmd = ord(trame[i])
+                #print "cmd = ", cmd
+                octets, sign = self.CMD_TO_OCTET[cmd]
+                if octets == 1:
+                    data = ord(trame[i+1:i+2])
+                else:
+                    temp = self.receive(octets)
+                    if sign == 0:
+                        sType = '>H'
                     else:
-                        temp = self.receive(octets)
-                        if sign == 0:
-                            sType = '>H'
-                        else:
-                            sType = '>h'
-                        data = struct.unpack(sType, trame[i+1:i+1+octets])[0]
-                    self.SENSOR_DATA_LOCK.acquire()
-                    self.SENSOR_DATA[cmd] = data
-                    self.SENSOR_DATA_LOCK.release()
-                    i += 1 + octets
+                        sType = '>h'
+                    data = struct.unpack(sType, trame[i+1:i+1+octets])[0]
+                self.SENSOR_DATA_LOCK.acquire()
+                self.SENSOR_DATA[cmd] = data
+                self.SENSOR_DATA_LOCK.release()
+                i += 1 + octets
         else:
             print "trame corrompue"
 
+    def convertDistance2Ir(self, distance):
+        return 2436 * np.exp(-0.024 * distance)
+    
     def convertIR2Distance(self, irValue):
-        return 2436 * np.exp(-0.236 * irValue)
+        return -42.16 * np.log(irValue) + 329.15
 
     def unicycleToDifferential(self, v, omega):
         R = self.WHEEL_SEPARATION
@@ -324,14 +333,7 @@ class Roomba:
 
     def avoidObtacles(self):
         n = self.RC2_SENSOR_POSES
-        self.SENSOR_DATA_LOCK.acquire()
-        distanceSensors = [self.SENSOR_DATA[46],
-                           self.SENSOR_DATA[47],
-                           self.SENSOR_DATA[48],
-                           self.SENSOR_DATA[49],
-                           self.SENSOR_DATA[50],
-                           self.SENSOR_DATA[51]]
-        self.SENSOR_DATA_LOCK.release()
+        distanceSensors = self.getIrData()
 
         obstacle_vectors = [[ 0.0, 0.0 ] * n]
         heading_vector   = [ 0.0, 0.0 ]
@@ -347,10 +349,27 @@ class Roomba:
 
         v = self.V_MAX / ( abs( omega ) + 1 )**0.5
 
-        r.uniMove(v,omega)
-
+        self.r.uniMove(v,omega)
+        
+    def getWallTrackingVector(self):
+        pass    
+        
+    def followWall(self):         
+        pass
+    
+    def getIrData(self):
+        self.SENSOR_DATA_LOCK.acquire()
+        irSensors = [  self.SENSOR_DATA[46],
+                       self.SENSOR_DATA[47],
+                       self.SENSOR_DATA[48],
+                       self.SENSOR_DATA[49],
+                       self.SENSOR_DATA[50],
+                       self.SENSOR_DATA[51]]
+        self.SENSOR_DATA_LOCK.release()
+        return irSensors
+    
     def getInput(self):
-
+        
         self.isInDanger = False
         self.obstacleDetected = False
         self.isSafe = False
@@ -359,6 +378,18 @@ class Roomba:
         self.isGoalReached = False
         self.progressMade = False
 
+        #RC2_SENSOR_POSES
+        distanceSensors = self.getIrData()
+         
+        for ir in distanceSensors:
+            distance = self.convertIR2Distance(ir)
+            if( distance >= self.SENSITIVE_ZONE ):
+                self.isSafe = True
+            if( distance < self.SENSITIVE_ZONE ):
+                self.obstacleDetected = True
+            if( distance < self.DANGER_ZONE ):
+                self.isInDanger = True
+        
     def doGoToGoal(self):
 
         if(self.isInDanger):
@@ -429,25 +460,26 @@ class Roomba:
 
 def test():
     r = Roomba('COM24', 115200)
+    s = Stream(r)
     try:
         r.fullMode()
-
         print "mode : {0}".format(r.getMode())
+        
+        s.start()
+        time.sleep(1)
 
-        #r.setSong(1, [61,50,62,50,63,50])
-        #r.playSong(1)
-
-        r.setStream([46])
         while True:
-            if ord(r.receive(1)) == 19:
-                r.getDataSTream();
-                print "ir left : {0}".format(r.SENSOR_DATA[46])
-
+            r.getInput()
+            print "running"
+            print "obstacle ? {}".format(r.obstacleDetected)
+            print "danger ? {}".format(r.isInDanger)
+            time.sleep(1) 
 
         r.disconnect()
 
     except:
         PrintException()
+        s.kill()
         r.disconnect()
 
 
