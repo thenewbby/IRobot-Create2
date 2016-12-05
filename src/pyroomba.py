@@ -30,10 +30,6 @@ class Roomba:
 
     SENSOR_DATA_LOCK = threading.Lock()
 
-    position = [0,0,0] #x, y, theta (en milimetre)
-    last_encodeur = [] #[left, right]
-    # last_time_pos =
-
     V_MAX           = 200 #mm/s
     KP              = 10
 
@@ -115,6 +111,11 @@ class Roomba:
     def __init__(self, port, baudrate):
         self.s = None
         self.connect(port, baudrate)
+        self.state = State.GO_TO_GOAL
+        self.goal = [0,0]
+        self.Goal_Vector = [0,0,0]
+        self.position = [0,0,0] #x, y, theta (en milimetre)
+        self.last_encodeur = [] #[left, right]
 
     def connect(self, port, baudrate):
         self.s = serial.Serial(port, baudrate, timeout = 1)
@@ -312,24 +313,13 @@ class Roomba:
                     break
         self.diffMove(0,0)
 
-    def moveToPoint(self, xPos, yPos): #xPos et yPos en mètre
-        Goal_Vector = [100,100,0]
-        xPos *= 1000
-        yPos *= 1000
-        while (-5 < Goal_Vector[0]) and (Goal_Vector[0] > 5) and (-5 < Goal_Vector[1]) and (Goal_Vector[1] > 5): # Condition d'arrete : arrivé au point (vecteur goal proche de zéro)
-
-            # Calcul vector goal robot frame
-            Goal_Vector[0] = xPos - self.position[0]
-            Goal_Vector[1] = yPos - self.position[1]
-            Goal_Vector[2] = np.arctan2(Goal_Vector[1],Goal_Vector[0])
-
-            # Calcul de l'angle d'erreur
-            thetaDelta = ((Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
-            # Calcul omega et v
-            omega = self.KP * thetaDelta
-            v = self.V_MAX / ( abs( omega ) + 1 )**0.5
-            self.uniMove(v, omega)
-        self.diffMove(0,0)
+    def moveToGoal(self, xPos, yPos): #xPos et yPos en mètre
+        
+        thetaDelta = ((self.Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
+        # Calcul omega et v
+        omega = self.KP * thetaDelta
+        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+        self.uniMove(v, omega)
 
     def avoidObtacles(self):
         n = self.RC2_SENSOR_POSES
@@ -349,14 +339,9 @@ class Roomba:
 
         v = self.V_MAX / ( abs( omega ) + 1 )**0.5
 
-        self.r.uniMove(v,omega)
+        self.uniMove(v,omega)
+
         
-    def getWallTrackingVector(self):
-        pass    
-        
-    def followWall(self):         
-        pass
-    
     def getIrData(self):
         self.SENSOR_DATA_LOCK.acquire()
         irSensors = [  self.SENSOR_DATA[46],
@@ -367,7 +352,64 @@ class Roomba:
                        self.SENSOR_DATA[51]]
         self.SENSOR_DATA_LOCK.release()
         return irSensors
-    
+
+    def followWall(self):
+        wall_surface =             [ [ 1.0, 0.0 ], [ 1.0, 0.0 ] ]  # the followed surface, in robot space
+        parallel_component =       [ 1.0, 0.0 ]
+        perpendicular_component =  [ 1.0, 0.0 ]
+        distance_vector =          [ 1.0, 0.0 ]
+        fw_heading_vector =        [ 1.0, 0.0 ]
+
+        if self.state == State.SLIDE_LEFT:
+            self.SENSOR_DATA_LOCK.acquire()
+            sensorDistances = [self.SENSOR_DATA[46],
+                               self.SENSOR_DATA[47],
+                               self.SENSOR_DATA[48]]
+            self.SENSOR_DATA_LOCK.release()
+            sensorsPlacement = self.RC2_SENSOR_POSES[0:3]
+        else:
+            self.SENSOR_DATA_LOCK.acquire()
+            sensorDistances = [self.SENSOR_DATA[51],
+                               self.SENSOR_DATA[20],
+                               self.SENSOR_DATA[49]]
+            self.SENSOR_DATA_LOCK.release()
+            sensorsPlacement = self.RC2_SENSOR_POSES[5:2:-1]
+
+
+        sensorDistances, indices = zip( *sorted( zip(
+                                            sensorDistances,
+                                            [0, 1, 2,]
+                                    )))
+        d1, d2 = sensorDistances[0:2]
+        i1, i2 = indices[0:2]
+        sensor1Pos, sensor1Theta = sensorsPlacement[i1][0] , sensorsPlacement[i1][1]
+        sensor2Pos, sensor2Theta = sensorsPlacement[i2][0] , sensorsPlacement[i2][1]
+        p1, p2 = [ d1, 0.0 ], [ d2, 0.0 ]
+        p1 = linalg.rotate_and_translate_vector( p1, sensor1Pos, sensor1Theta )
+        p2 = linalg.rotate_and_translate_vector( p2, sensor2Pos, sensor2Theta )
+
+        wall_surface = [ p2, p1 ]
+        parallel_component = linalg.sub( p2, p1 )
+        distance_vector = linalg.sub( p1, linalg.proj( p1, parallel_component ) )
+        unit_perp = linalg.unit( distance_vector )
+        distance_desired = linalg.scale( unit_perp, self.follow_distance )
+        perpendicular_component = linalg.sub( distance_vector, distance_desired )
+        fw_heading_vector = linalg.add( parallel_component, perpendicular_component )
+
+        theta = np.arctan2(fw_heading_vector[1], fw_heading_vector[0])
+
+        omega = self.KP_OMEGA*theta
+
+        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+
+        self.uniMove(v,omega)
+
+    def goalUpdate(self):
+        # Calcul vector goal robot frame
+        self.Goal_Vector[0] = self.goal[0] - self.position[0]
+        self.Goal_Vector[1] = self.goal[1] - self.position[1]
+        self.Goal_Vector[2] = np.arctan2(self.Goal_Vector[1],self.Goal_Vector[0])
+
     def getInput(self):
         
         self.isInDanger = False
@@ -444,6 +486,7 @@ class Roomba:
         pass
 
     def updateState(self):
+        self.goalUpdate()
         if(self.state == State.GO_TO_GOAL):
             self.doGoToGoal()
         elif(self.state == State.AVOID_OBSTACLE):
