@@ -119,6 +119,14 @@ class Roomba:
         self.position = [0,0,0] #x, y, theta (en milimetre)
         self.last_encodeur = [] #[left, right]
         self.minAbsDistanceToGoal = sys.maxint;
+        self.nbSensor = len(self.RC2_SENSOR_POSES)
+        self.ao_obstacle_vectors = [[ 0.0, 0.0 ] * self.nbSensor]
+
+        self.ao_heading_vector   = [ 0.0, 0.0 ]
+        self.gtg_heading_vector  = [ 1.0, 0.0 ]
+        self.r_fw_heading_vector = [ 1.0, 0.0 ]
+        self.l_fw_heading_vector = [ 1.0, 0.0 ]
+
 
     def connect(self, port, baudrate):
         self.s = serial.Serial(port, baudrate, timeout = 1)
@@ -317,7 +325,7 @@ class Roomba:
         self.diffMove(0,0)
 
     def moveToGoal(self, xPos, yPos): #xPos et yPos en mètre
-
+        self.gtg_heading_vector = self.Goal_Vector[:]
         thetaDelta = ((self.Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
         # Calcul omega et v
         omega = self.KP * thetaDelta
@@ -325,18 +333,15 @@ class Roomba:
         self.uniMove(v, omega)
 
     def avoidObtacles(self):
-        n = self.RC2_SENSOR_POSES
         distanceSensors = self.getIrData()
 
-        obstacle_vectors = [[ 0.0, 0.0 ] * n]
-        heading_vector   = [ 0.0, 0.0 ]
-        for i in range(n):
-            obstacle_vectors[i] = distanceSensors[i]
-            obstacle_vectors[i] = linalg.rotate_and_translate_vector( obstacle_vectors[i], self.RC2_SENSOR_POSES[i][1], self.RC2_SENSOR_POSES[i][0] )
-            heading_vector      = linalg.add( heading_vector,
-                                             linalg.scale( obstacle_vectors[i], self.SENSOR_GAIN[i] ) )
+        for i in range(self.nbSensor):
+            self.ao_obstacle_vectors[i] = distanceSensors[i]
+            self.ao_obstacle_vectors[i] = linalg.rotate_and_translate_vector( self.ao_obstacle_vectors[i], self.RC2_SENSOR_POSES[i][1], self.RC2_SENSOR_POSES[i][0] )
+            self.ao_heading_vector      = linalg.add( self.ao_heading_vector,
+                                             linalg.scale( self.ao_obstacle_vectors[i], self.SENSOR_GAIN[i] ) )
 
-        theta = np.arctan2(heading_vector[1], heading_vector[0])
+        theta = np.arctan2(self.ao_heading_vector[1], self.ao_heading_vector[0])
 
         omega = self.KP_OMEGA*theta
 
@@ -361,7 +366,7 @@ class Roomba:
         parallel_component =       [ 1.0, 0.0 ]
         perpendicular_component =  [ 1.0, 0.0 ]
         distance_vector =          [ 1.0, 0.0 ]
-        fw_heading_vector =        [ 1.0, 0.0 ]
+
 
         if self.state == State.SLIDE_LEFT:
             self.SENSOR_DATA_LOCK.acquire()
@@ -397,7 +402,12 @@ class Roomba:
         unit_perp = linalg.unit( distance_vector )
         distance_desired = linalg.scale( unit_perp, self.FOLLOW_DISTANCE )
         perpendicular_component = linalg.sub( distance_vector, distance_desired )
-        fw_heading_vector = linalg.add( parallel_component, perpendicular_component )
+        fw_heading_vector = linalg.add( parallel_component, perpendicular_component)
+
+        if self.state == State.SLIDE_LEFT:
+            self.l_fw_heading_vector = fw_heading_vector[:]
+        else:
+            self.r_fw_heading_vector = fw_heading_vector[:]
 
         theta = np.arctan2(fw_heading_vector[1], fw_heading_vector[0])
 
@@ -415,13 +425,13 @@ class Roomba:
 
     def getInput(self):
 
-        self.isInDanger = False         # X
-        self.obstacleDetected = False   # X
-        self.isSafe = False             # X
+        self.isInDanger = False         
+        self.obstacleDetected = False   
+        self.isSafe = False             
         self.isSlidingLeft = False
         self.isSlidingRight = False
-        self.isGoalReached = False      # X
-        self.progressMade = False       # X
+        self.isGoalReached = False      
+        self.progressMade = False       
 
         absDistanceToGoal = np.sqrt(self.Goal_Vector[0]**2 + self.Goal_Vector[1]**2)
 
@@ -441,6 +451,24 @@ class Roomba:
         if absDistanceToGoal < self.minAbsDistanceToGoal:
             self.progressMade = True
             self.minAbsDistanceToGoal = absDistanceToGoal
+
+        # Test slide right
+        heading_gtg = self.gtg_heading_vector
+        heading_ao = self.ao_heading_vector
+        heading_fwr = self.r_fw_heading_vector
+        ao_cross_fwr = linalg.cross( heading_ao, heading_fwr )
+        fwr_cross_gtg = linalg.cross( heading_fwr, heading_gtg )
+        ao_cross_gtg = linalg.cross( heading_ao, heading_gtg )
+        if  ao_cross_gtg > 0.0 and ao_cross_fwr > 0.0 and fwr_cross_gtg > 0.0 ) or ( ao_cross_gtg <= 0.0 and ao_cross_fwr <= 0.0 and fwr_cross_gtg <= 0.0 ) ):
+            self.isSlidingRight = True
+
+        # Test slide left
+        heading_fwr = self.l_fw_heading_vector
+        ao_cross_fwr = linalg.cross( heading_ao, heading_fwr )
+        fwr_cross_gtg = linalg.cross( heading_fwr, heading_gtg )
+        ao_cross_gtg = linalg.cross( heading_ao, heading_gtg )
+        if  ao_cross_gtg > 0.0 and ao_cross_fwr > 0.0 and fwr_cross_gtg > 0.0 ) or ( ao_cross_gtg <= 0.0 and ao_cross_fwr <= 0.0 and fwr_cross_gtg <= 0.0 ) ):
+            self.isSlidingLeft = True
 
 
     def doGoToGoal(self):
