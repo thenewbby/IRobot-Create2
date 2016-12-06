@@ -510,6 +510,53 @@ class Roomba:
         self.goalUpdate()
         self.getInput()
         self.updateState()
+        
+    def run(self):
+        while not self.isGoalReached():
+            self.getInput()
+            print "running"
+            print "obstacle ? {}".format(self.obstacleDetected)
+            print "danger ? {}".format(self.isInDanger)
+            time.sleep(1)
+        
+
+class Thread(threading.Thread):
+    
+    def __init__(self):
+        super.__init__(self)
+        self.kill_received = False
+    
+    def kill(self):
+        self.kill_received = True
+
+class Stream(Thread):
+    def __init__(self,r):
+        super.__init__(self)
+        self.r = r
+        r.setStream(packetIds=[46,47,48,49,50,51,43,44])
+
+    def run(self):
+        while not self.kill_received:
+            b = self.r.receive(1)
+            if ord(b) == 19:
+                self.r.getDataSTream()
+
+
+class Odometrie(Thread):
+    def __init__(self,r):
+        super.__init__(self)
+        self.r = r
+        # r.last_encodeur = r.getData([43,44])
+        self.r.SENSOR_DATA_LOCK.acquire()
+        self.r.last_encodeur = [self.r.SENSOR_DATA[43], self.r.SENSOR_DATA[44]]
+        self.r.SENSOR_DATA_LOCK.release()
+        # print self.r.last_encodeur
+
+    def run(self):
+        while not self.kill_received:
+            self.r.positionUpdate()
+            print self.r.position
+            time.sleep(0.025)
 
 
 def test():
@@ -535,7 +582,36 @@ def test():
         PrintException()
         s.kill()
         r.disconnect()
+        
+        
 
+def main():
+    roomba = Roomba('COM24', 115200)
+    stream = Stream(roomba)
+    odometrie = Odometrie(roomba)
+    
+    try:
+        roomba.fullMode()
+        print "mode : {0}".format(roomba.getMode())
+
+        stream.start()
+        time.sleep(1)
+        odometrie.start()
+        time.sleep(1)
+        
+        roomba.run()
+
+        odometrie.kill()
+        stream.kill()
+        roomba.disconnect()
+
+    except:
+        PrintException()
+        odometrie.kill()
+        stream.kill()
+        roomba.disconnect()
+
+    
 
 if __name__ == '__main__':
-    test()
+    main()
