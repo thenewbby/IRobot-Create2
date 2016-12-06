@@ -31,8 +31,7 @@ class Roomba:
     SENSOR_DATA_LOCK = threading.Lock()
 
     V_MAX           = 200 #mm/s
-    KP              = 10
-
+    KP              = 5
     KP_OMEGA        = 5
 
     TURN_SPEED      = 200
@@ -44,7 +43,7 @@ class Roomba:
     ROBOT_RADIUS    = 35    # En milimÃ¨tre
 
     SENSITIVE_ZONE  = 200
-    DANGER_ZONE     = 50
+    DANGER_ZONE     = 150
 
     CMD_RESET       = 7
     CMD_START       = 128
@@ -67,7 +66,7 @@ class Roomba:
 
     ENCODER_MAX_VALUE = 65535
 
-    SENSOR_GAIN = [9.27, 4.82, 1.76, 1.76, 4.82, 9.27]
+    SENSOR_GAIN = [9.27,4.82,1.76,1.76,4.82,9.27]#[2.36,6.18,9.24,9.24,6.18,2.36]
 
     SENSOR_DATA = {}
 # LISTE NON COMPLETE
@@ -120,9 +119,9 @@ class Roomba:
         self.last_encodeur = [] #[left, right]
         self.minAbsDistanceToGoal = sys.maxint;
         self.nbSensor = len(self.RC2_SENSOR_POSES)
-        self.ao_obstacle_vectors = [[ 0.0, 0.0 ] * self.nbSensor]
+        self.ao_obstacle_vectors = [[ 0.0, 0.0 ]] * self.nbSensor
 
-        self.ao_heading_vector   = [ 0.0, 0.0 ]
+        self.ao_heading_vector   = [ 1.0, 0.0 ]
         self.gtg_heading_vector  = [ 1.0, 0.0 ]
         self.r_fw_heading_vector = [ 1.0, 0.0 ]
         self.l_fw_heading_vector = [ 1.0, 0.0 ]
@@ -134,6 +133,8 @@ class Roomba:
         self.isSlidingRight = False
         self.isGoalReached = False      # X
         self.progressMade = False       # X
+        
+        self.omega = 0
 
     def connect(self, port, baudrate):
         self.s = serial.Serial(port, baudrate, timeout = 1)
@@ -330,36 +331,36 @@ class Roomba:
         newTheta = np.arctan2(np.sin(newTheta),np.cos(newTheta))
         while True:
                 delta = newTheta - self.position[2]
-                omega = self.KP_OMEGA * delta
-                self.uniMove(0,omega)
+                newOmega = self.KP_OMEGA * delta
+                self.omega = 0.25*self.omega + 0.75*newOmega
+                self.uniMove(0,self.omega)
                 if -0.087 < delta and delta < 0.087:
                     break
         self.diffMove(0,0)
 
-    def moveToGoal(self, xPos, yPos): #xPos et yPos en mètre
+    def moveToGoal(self, xPos, yPos): #xPos et yPos en millimètre
         self.gtg_heading_vector = self.Goal_Vector[:]
         thetaDelta = ((self.Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
         # Calcul omega et v
-        omega = self.KP * thetaDelta
-        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
-        self.uniMove(v, omega)
+        newOmega = self.KP * thetaDelta
+        self.omega = 0.25*self.omega + 0.75*newOmega
+        v = self.V_MAX / ( abs( self.omega ) + 1 )**0.5
+        self.uniMove(v, self.omega)
 
     def avoidObtacles(self):
         distanceSensors = self.getIrData()
-
         for i in range(self.nbSensor):
-            self.ao_obstacle_vectors[i] = distanceSensors[i]
+            self.ao_obstacle_vectors[i] = [distanceSensors[i],0]
             self.ao_obstacle_vectors[i] = linalg.rotate_and_translate_vector( self.ao_obstacle_vectors[i], self.RC2_SENSOR_POSES[i][1], self.RC2_SENSOR_POSES[i][0] )
             self.ao_heading_vector      = linalg.add( self.ao_heading_vector,
                                              linalg.scale( self.ao_obstacle_vectors[i], self.SENSOR_GAIN[i] ) )
 
-        theta = np.arctan2(self.ao_heading_vector[1], self.ao_heading_vector[0])
-
-        omega = self.KP_OMEGA*theta
-
-        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
-
-        self.uniMove(v,omega)
+        theta = np.arctan2(-self.ao_heading_vector[1], self.ao_heading_vector[0])
+        
+        newOmega = self.KP_OMEGA*theta
+        self.omega = 0.25*self.omega + 0.75*newOmega
+        v = self.V_MAX / ( abs( self.omega ) + 1 )**0.5
+        self.uniMove(v, self.omega)
 
 
     def getIrData(self):
@@ -387,7 +388,7 @@ class Roomba:
                                self.SENSOR_DATA[48]]
             self.SENSOR_DATA_LOCK.release()
             sensorsPlacement = self.RC2_SENSOR_POSES[0:3]
-        else:
+        elif self.state == State.SLIDE_RIGHT:
             self.SENSOR_DATA_LOCK.acquire()
             sensorDistances = [self.SENSOR_DATA[51],
                                self.SENSOR_DATA[20],
@@ -418,7 +419,7 @@ class Roomba:
 
         if self.state == State.SLIDE_LEFT:
             self.l_fw_heading_vector = fw_heading_vector[:]
-        else:
+        elif self.state == State.SLIDE_RIGHT:
             self.r_fw_heading_vector = fw_heading_vector[:]
 
         theta = np.arctan2(fw_heading_vector[1], fw_heading_vector[0])
@@ -481,7 +482,9 @@ class Roomba:
         ao_cross_gtg = linalg.cross( heading_ao, heading_gtg )
         if ( ( ao_cross_gtg > 0.0 and ao_cross_fwr > 0.0 and fwr_cross_gtg > 0.0 ) or ( ao_cross_gtg <= 0.0 and ao_cross_fwr <= 0.0 and fwr_cross_gtg <= 0.0 ) ):
             self.isSlidingLeft = True
-
+            
+#         print "SL? ", self.isSlidingLeft
+#         print "SR? ", self.isSlidingRight
 
     def doGoToGoal(self):
 
@@ -494,9 +497,6 @@ class Roomba:
         elif(self.obstacleDetected and self.isSlidingRight and not self.isSlidingLeft):
             self.state = State.SLIDE_RIGHT
 
-        #action
-        pass
-
     def doAvoidObstacle(self):
 
         if(self.isGoalReached):
@@ -505,11 +505,8 @@ class Roomba:
             self.state = State.SLIDE_LEFT
         elif(not self.isInDanger and self.isSlidingRight and not self.isSlidingLeft):
             self.state = State.SLIDE_RIGHT
-        elif(not self.isSlidingLeft and not self.isSlidingRight):
+        elif(not self.isInDanger and not self.isSlidingLeft and not self.isSlidingRight):
             self.state = State.GO_TO_GOAL
-
-        #action
-        pass
 
     def doSlideLeft(self):
 
@@ -520,10 +517,6 @@ class Roomba:
         elif(self.progressMade and not self.isSlidingLeft):
             self.state = State.GO_TO_GOAL
 
-        #action
-
-        pass
-
     def doSlideRight(self):
 
         if(self.isGoalReached):
@@ -533,8 +526,16 @@ class Roomba:
         elif(self.progressMade and not self.isSlidingRight):
             self.state = State.GO_TO_GOAL
 
-        #action
-        pass
+        
+    def doAction(self):
+        if(self.state == State.GO_TO_GOAL):
+            self.moveToGoal(self.goal[0], self.goal[1])
+        elif(self.state == State.AVOID_OBSTACLE):
+            self.avoidObtacles()
+        elif(self.state == State.SLIDE_LEFT):
+            self.followWall()
+        elif(self.state == State.SLIDE_RIGHT):
+            self.followWall()
 
     def updateState(self):
         if(self.state == State.GO_TO_GOAL):
@@ -550,6 +551,7 @@ class Roomba:
         self.goalUpdate()
         self.getInput()
         self.updateState()
+        self.doAction()
 
     def getStateStr(self):
         if(self.state == State.AVOID_OBSTACLE):
@@ -562,13 +564,14 @@ class Roomba:
             return "slide left"
         elif(self.state == State.SLIDE_RIGHT):
             return "slide right"
+        else:
+            return "unknown"
         
     def run(self):
         while not self.isGoalReached:
             self.update()
-            print "state = ", self.getStateStr()
-            time.sleep(1)
-
+            if(self.state == State.SLIDE_LEFT or self.state == State.SLIDE_RIGHT): print "state = ", self.getStateStr(),"\n"
+            
 class Stream(threading.Thread):
     def __init__(self,r):
         threading.Thread.__init__(self)
@@ -633,26 +636,27 @@ def test():
 
 def main():
 
-    roomba = Roomba('COM24', 115200, [100,100])
-
+    roomba = Roomba('COM24', 115200, [1000,100])
+    #roomba.send([7])
+     
     try:
         roomba.fullMode()
         print "mode : {}".format(roomba.getMode())
-
+  
         stream = Stream(roomba)
         stream.start()
         time.sleep(0.2)
-
+  
         odometrie = Odometrie(roomba)
         odometrie.start()
         time.sleep(0.2)
-
+  
         roomba.run()
-
+  
         odometrie.kill()
         stream.kill()
         roomba.disconnect()
-
+ 
     except:
         PrintException()
         odometrie.kill()
