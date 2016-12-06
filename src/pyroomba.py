@@ -445,40 +445,40 @@ class Roomba:
 
     def doGoToGoal(self):
 
-        if(self.isInDanger):
+        if(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        elif(self.isInDanger):
             self.state = State.AVOID_OBSTACLE
         elif(self.obstacleDetected and self.isSlidingLeft and not self.isSlidingRight):
             self.state = State.SLIDE_LEFT
         elif(self.obstacleDetected and self.isSlidingRight and not self.isSlidingLeft):
             self.state = State.SLIDE_RIGHT
-        elif(self.isGoalReached):
-            self.state = State.GOAL_REACHED
 
         #action
         pass
 
     def doAvoidObstacle(self):
 
-        if(not self.isInDanger and self.isSlidingLeft and not self.isSlidingRight):
+        if(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        elif(not self.isInDanger and self.isSlidingLeft and not self.isSlidingRight):
             self.state = State.SLIDE_LEFT
         elif(not self.isInDanger and self.isSlidingRight and not self.isSlidingLeft):
             self.state = State.SLIDE_RIGHT
         elif(not self.isSlidingLeft and not self.isSlidingRight):
             self.state = State.GO_TO_GOAL
-        elif(self.isGoalReached):
-            self.state = State.GOAL_REACHED
 
         #action
         pass
 
     def doSlideLeft(self):
 
-        if(self.isInDanger):
+        if(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        elif(self.isInDanger):
             self.state = State.AVOID_OBSTACLE
         elif(self.progressMade and not self.isSlidingLeft):
             self.state = State.GO_TO_GOAL
-        elif(self.isGoalReached):
-            self.state = State.GOAL_REACHED
 
         #action
 
@@ -486,12 +486,12 @@ class Roomba:
 
     def doSlideRight(self):
 
-        if(self.isInDanger):
+        if(self.isGoalReached):
+            self.state = State.GOAL_REACHED
+        elif(self.isInDanger):
             self.state = State.AVOID_OBSTACLE
         elif(self.progressMade and not self.isSlidingRight):
             self.state = State.GO_TO_GOAL
-        elif(self.isGoalReached):
-            self.state = State.GOAL_REACHED
 
         #action
         pass
