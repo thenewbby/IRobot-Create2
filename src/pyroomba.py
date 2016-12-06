@@ -133,8 +133,6 @@ class Roomba:
         self.isSlidingRight = False
         self.isGoalReached = False      # X
         self.progressMade = False       # X
-        
-        self.omega = 0
 
     def connect(self, port, baudrate):
         self.s = serial.Serial(port, baudrate, timeout = 1)
@@ -331,9 +329,8 @@ class Roomba:
         newTheta = np.arctan2(np.sin(newTheta),np.cos(newTheta))
         while True:
                 delta = newTheta - self.position[2]
-                newOmega = self.KP_OMEGA * delta
-                self.omega = 0.25*self.omega + 0.75*newOmega
-                self.uniMove(0,self.omega)
+                omega = self.KP_OMEGA * delta
+                self.uniMove(0,omega)
                 if -0.087 < delta and delta < 0.087:
                     break
         self.diffMove(0,0)
@@ -342,10 +339,9 @@ class Roomba:
         self.gtg_heading_vector = self.Goal_Vector[:]
         thetaDelta = ((self.Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
         # Calcul omega et v
-        newOmega = self.KP * thetaDelta
-        self.omega = 0.25*self.omega + 0.75*newOmega
-        v = self.V_MAX / ( abs( self.omega ) + 1 )**0.5
-        self.uniMove(v, self.omega)
+        omega = self.KP * thetaDelta
+        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+        self.uniMove(v, omega)
 
     def avoidObtacles(self):
         distanceSensors = self.getIrData()
@@ -356,11 +352,12 @@ class Roomba:
                                              linalg.scale( self.ao_obstacle_vectors[i], self.SENSOR_GAIN[i] ) )
 
         theta = np.arctan2(-self.ao_heading_vector[1], self.ao_heading_vector[0])
-        
-        newOmega = self.KP_OMEGA*theta
-        self.omega = 0.25*self.omega + 0.75*newOmega
-        v = self.V_MAX / ( abs( self.omega ) + 1 )**0.5
-        self.uniMove(v, self.omega)
+
+        omega = self.KP_OMEGA*theta
+
+        v = self.V_MAX / ( abs( omega ) + 1 )**0.5
+
+        self.uniMove(v,omega)
 
 
     def getIrData(self):
