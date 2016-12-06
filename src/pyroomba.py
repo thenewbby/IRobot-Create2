@@ -110,15 +110,23 @@ class Roomba:
                        [  [0.301, -0.174], -0.523  ],
                        [  [0.147, -0.315], -1.134  ]]
 
-    def __init__(self, port, baudrate):
+    def __init__(self, port, baudrate, goalPosition_mm):
         self.s = None
         self.connect(port, baudrate)
         self.state = State.GO_TO_GOAL
-        self.goal = [0,0]
-        self.Goal_Vector = [0,0,0]
+        self.goal = goalPosition_mm
+        self.Goal_Vector = [sys.maxint,sys.maxint,0]
         self.position = [0,0,0] #x, y, theta (en milimetre)
         self.last_encodeur = [] #[left, right]
         self.minAbsDistanceToGoal = sys.maxint;
+        
+        self.isInDanger = False         # X
+        self.obstacleDetected = False   # X
+        self.isSafe = False             # X
+        self.isSlidingLeft = False
+        self.isSlidingRight = False
+        self.isGoalReached = False      # X
+        self.progressMade = False       # X
 
     def connect(self, port, baudrate):
         self.s = serial.Serial(port, baudrate, timeout = 1)
@@ -141,6 +149,7 @@ class Roomba:
             return self.s.read(byteCount)
         except IOError as e:
             print "Roomba I/O error({0}) : {1}".format(e.errno, e.strerror)
+            return '\x00'
 
     def passiveMode(self):
         self.send([self.CMD_START])
@@ -212,7 +221,8 @@ class Roomba:
             i = 0;
             while i < n :
                 cmd = ord(trame[i])
-                #print "cmd = ", cmd
+                if cmd not in self.CMD_TO_OCTET.keys():
+                    break
                 octets, sign = self.CMD_TO_OCTET[cmd]
                 if octets == 1:
                     data = ord(trame[i+1:i+2])
@@ -234,7 +244,10 @@ class Roomba:
         return 2436 * np.exp(-0.024 * distance)
 
     def convertIR2Distance(self, irValue):
-        return -42.16 * np.log(irValue) + 329.15
+        if(irValue == 0):
+            return sys.maxint
+        else:
+            return -42.16 * np.log(irValue) + 329.15
 
     def unicycleToDifferential(self, v, omega):
         R = self.WHEEL_SEPARATION
@@ -512,28 +525,23 @@ class Roomba:
         self.updateState()
         
     def run(self):
-        while not self.isGoalReached():
+        while not self.isGoalReached:
             self.getInput()
             print "running"
             print "obstacle ? {}".format(self.obstacleDetected)
             print "danger ? {}".format(self.isInDanger)
             time.sleep(1)
-        
+            print self.isGoalReached
 
-class Thread(threading.Thread):
-    
-    def __init__(self):
-        super.__init__(self)
-        self.kill_received = False
-    
-    def kill(self):
-        self.kill_received = True
-
-class Stream(Thread):
+class Stream(threading.Thread):
     def __init__(self,r):
-        super.__init__(self)
+        threading.Thread.__init__(self)
+        self.kill_received = False
         self.r = r
         r.setStream(packetIds=[46,47,48,49,50,51,43,44])
+
+    def kill(self):
+        self.kill_received = True
 
     def run(self):
         while not self.kill_received:
@@ -541,21 +549,23 @@ class Stream(Thread):
             if ord(b) == 19:
                 self.r.getDataSTream()
 
-
-class Odometrie(Thread):
+class Odometrie(threading.Thread):
     def __init__(self,r):
-        super.__init__(self)
+        threading.Thread.__init__(self)
+        self.kill_received = False
         self.r = r
         # r.last_encodeur = r.getData([43,44])
         self.r.SENSOR_DATA_LOCK.acquire()
         self.r.last_encodeur = [self.r.SENSOR_DATA[43], self.r.SENSOR_DATA[44]]
         self.r.SENSOR_DATA_LOCK.release()
         # print self.r.last_encodeur
+        
+    def kill(self):
+        self.kill_received = True
 
     def run(self):
         while not self.kill_received:
             self.r.positionUpdate()
-            print self.r.position
             time.sleep(0.025)
 
 
@@ -586,18 +596,20 @@ def test():
         
 
 def main():
-    roomba = Roomba('COM24', 115200)
-    stream = Stream(roomba)
-    odometrie = Odometrie(roomba)
+    
+    roomba = Roomba('COM24', 115200, [100,100])
     
     try:
         roomba.fullMode()
-        print "mode : {0}".format(roomba.getMode())
-
+        print "mode : {}".format(roomba.getMode())
+            
+        stream = Stream(roomba)
         stream.start()
-        time.sleep(1)
+        time.sleep(0.2)
+        
+        odometrie = Odometrie(roomba)
         odometrie.start()
-        time.sleep(1)
+        time.sleep(0.2)
         
         roomba.run()
 

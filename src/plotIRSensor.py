@@ -1,4 +1,4 @@
-#!/usr/bin/python
+# #!/usr/bin/python
 # import numpy as np
 # import serial
 # import time
@@ -6,6 +6,39 @@
 # import threading
 # import os , sys
 # 
+# class Stream(threading.Thread):
+#     def __init__(self,r):
+#         threading.Thread.__init__(self)
+#         self.kill_received = False
+#         self.r = r
+#         r.setStream(packetIds=[46,47,48,49,50,51,43,44])
+# 
+#     def kill(self):
+#         self.kill_received = True
+# 
+#     def run(self):
+#         while not self.kill_received:
+#             b = self.r.receive(1)
+#             if ord(b) == 19:
+#                 self.r.getDataSTream()
+# 
+# 
+# class Odometrie(threading.Thread):
+#     def __init__(self,r):
+#         threading.Thread.__init__(self)
+#         self.kill_received = False
+#         self.r = r
+#         # r.last_encodeur = r.getData([43,44])
+#         self.r.SENSOR_DATA_LOCK.acquire()
+#         self.r.last_encodeur = [self.r.SENSOR_DATA[43], self.r.SENSOR_DATA[44]]
+#         self.r.SENSOR_DATA_LOCK.release()
+#         # print self.r.last_encodeur
+# 
+#     def run(self):
+#         while not self.kill_received:
+#             self.r.positionUpdate()
+#             print self.r.position
+#             time.sleep(0.025)
 # 
 # def testMove():
 #     threads = []
