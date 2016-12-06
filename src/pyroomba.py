@@ -37,6 +37,8 @@ class Roomba:
 
     TURN_SPEED      = 200
 
+    FOLLOW_DISTANCE = 0.5
+
     WHEEL_SEPARATION= 235   # En milimÃ¨tre
     WHEEL_DIAMETRE    = 72    # En milimÃ¨tre
     ROBOT_RADIUS    = 35    # En milimÃ¨tre
@@ -116,6 +118,7 @@ class Roomba:
         self.Goal_Vector = [0,0,0]
         self.position = [0,0,0] #x, y, theta (en milimetre)
         self.last_encodeur = [] #[left, right]
+        self.minAbsDistanceToGoal = sys.maxint;
 
     def connect(self, port, baudrate):
         self.s = serial.Serial(port, baudrate, timeout = 1)
@@ -229,7 +232,7 @@ class Roomba:
 
     def convertDistance2Ir(self, distance):
         return 2436 * np.exp(-0.024 * distance)
-    
+
     def convertIR2Distance(self, irValue):
         return -42.16 * np.log(irValue) + 329.15
 
@@ -314,7 +317,7 @@ class Roomba:
         self.diffMove(0,0)
 
     def moveToGoal(self, xPos, yPos): #xPos et yPos en mètre
-        
+
         thetaDelta = ((self.Goal_Vector[2] - self.position[2] + np.pi) % (2*np.pi)) - np.pi
         # Calcul omega et v
         omega = self.KP * thetaDelta
@@ -341,7 +344,7 @@ class Roomba:
 
         self.uniMove(v,omega)
 
-        
+
     def getIrData(self):
         self.SENSOR_DATA_LOCK.acquire()
         irSensors = [  self.SENSOR_DATA[46],
@@ -392,7 +395,7 @@ class Roomba:
         parallel_component = linalg.sub( p2, p1 )
         distance_vector = linalg.sub( p1, linalg.proj( p1, parallel_component ) )
         unit_perp = linalg.unit( distance_vector )
-        distance_desired = linalg.scale( unit_perp, self.follow_distance )
+        distance_desired = linalg.scale( unit_perp, self.FOLLOW_DISTANCE )
         perpendicular_component = linalg.sub( distance_vector, distance_desired )
         fw_heading_vector = linalg.add( parallel_component, perpendicular_component )
 
@@ -411,18 +414,20 @@ class Roomba:
         self.Goal_Vector[2] = np.arctan2(self.Goal_Vector[1],self.Goal_Vector[0])
 
     def getInput(self):
-        
-        self.isInDanger = False
-        self.obstacleDetected = False
-        self.isSafe = False
+
+        self.isInDanger = False         # X
+        self.obstacleDetected = False   # X
+        self.isSafe = False             # X
         self.isSlidingLeft = False
         self.isSlidingRight = False
-        self.isGoalReached = False
-        self.progressMade = False
+        self.isGoalReached = False      # X
+        self.progressMade = False       # X
+
+        absDistanceToGoal = np.sqrt(self.Goal_Vector[0]**2 + self.Goal_Vector[1]**2)
 
         #RC2_SENSOR_POSES
         distanceSensors = self.getIrData()
-         
+
         for ir in distanceSensors:
             distance = self.convertIR2Distance(ir)
             if( distance >= self.SENSITIVE_ZONE ):
@@ -431,7 +436,13 @@ class Roomba:
                 self.obstacleDetected = True
             if( distance < self.DANGER_ZONE ):
                 self.isInDanger = True
-        
+        if ( -5 < self.Goal_Vector[0] and self.Goal_Vector[0] < 5 and -5 < self.Goal_Vector[1] and self.Goal_Vector[1] < 5):
+            self.isGoalReached = True
+        if absDistanceToGoal < self.minAbsDistanceToGoal:
+            self.progressMade = True
+            self.minAbsDistanceToGoal = absDistanceToGoal
+
+
     def doGoToGoal(self):
 
         if(self.isInDanger):
@@ -486,7 +497,6 @@ class Roomba:
         pass
 
     def updateState(self):
-        self.goalUpdate()
         if(self.state == State.GO_TO_GOAL):
             self.doGoToGoal()
         elif(self.state == State.AVOID_OBSTACLE):
@@ -497,6 +507,7 @@ class Roomba:
             self.doSlideLeft()
 
     def update(self):
+        self.goalUpdate()
         self.getInput()
         self.updateState()
 
@@ -507,7 +518,7 @@ def test():
     try:
         r.fullMode()
         print "mode : {0}".format(r.getMode())
-        
+
         s.start()
         time.sleep(1)
 
@@ -516,7 +527,7 @@ def test():
             print "running"
             print "obstacle ? {}".format(r.obstacleDetected)
             print "danger ? {}".format(r.isInDanger)
-            time.sleep(1) 
+            time.sleep(1)
 
         r.disconnect()
 
