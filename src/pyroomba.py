@@ -471,7 +471,7 @@ class Roomba:
         ao_cross_fwr = linalg.cross( heading_ao, heading_fwr )
         fwr_cross_gtg = linalg.cross( heading_fwr, heading_gtg )
         ao_cross_gtg = linalg.cross( heading_ao, heading_gtg )
-        if  ao_cross_gtg > 0.0 and ao_cross_fwr > 0.0 and fwr_cross_gtg > 0.0 ) or ( ao_cross_gtg <= 0.0 and ao_cross_fwr <= 0.0 and fwr_cross_gtg <= 0.0 ) ):
+        if ( ( ao_cross_gtg > 0.0 and ao_cross_fwr > 0.0 and fwr_cross_gtg > 0.0 ) or ( ao_cross_gtg <= 0.0 and ao_cross_fwr <= 0.0 and fwr_cross_gtg <= 0.0 ) ):
             self.isSlidingRight = True
 
         # Test slide left
@@ -479,7 +479,7 @@ class Roomba:
         ao_cross_fwr = linalg.cross( heading_ao, heading_fwr )
         fwr_cross_gtg = linalg.cross( heading_fwr, heading_gtg )
         ao_cross_gtg = linalg.cross( heading_ao, heading_gtg )
-        if  ao_cross_gtg > 0.0 and ao_cross_fwr > 0.0 and fwr_cross_gtg > 0.0 ) or ( ao_cross_gtg <= 0.0 and ao_cross_fwr <= 0.0 and fwr_cross_gtg <= 0.0 ) ):
+        if ( ( ao_cross_gtg > 0.0 and ao_cross_fwr > 0.0 and fwr_cross_gtg > 0.0 ) or ( ao_cross_gtg <= 0.0 and ao_cross_fwr <= 0.0 and fwr_cross_gtg <= 0.0 ) ):
             self.isSlidingLeft = True
 
 
@@ -551,14 +551,23 @@ class Roomba:
         self.getInput()
         self.updateState()
 
+    def getStateStr(self):
+        if(self.state == State.AVOID_OBSTACLE):
+            return "avoid obstacle"
+        elif(self.state == State.GO_TO_GOAL):
+            return "go to goal"
+        elif(self.state == State.GOAL_REACHED):
+            return "goal reached"
+        elif(self.state == State.SLIDE_LEFT):
+            return "slide left"
+        elif(self.state == State.SLIDE_RIGHT):
+            return "slide right"
+        
     def run(self):
         while not self.isGoalReached:
-            self.getInput()
-            print "running"
-            print "obstacle ? {}".format(self.obstacleDetected)
-            print "danger ? {}".format(self.isInDanger)
+            self.update()
+            print "state = ", self.getStateStr()
             time.sleep(1)
-            print self.isGoalReached
 
 class Stream(threading.Thread):
     def __init__(self,r):
